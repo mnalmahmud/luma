@@ -24,6 +24,7 @@ export ADD_HOOKS="self-updater.hook"
 export UPINFO="gh-releases-zsync|${GITHUB_REPOSITORY%/*}|${GITHUB_REPOSITORY#*/}|latest|*$ARCH.AppImage.zsync"
 export ICON=./AppDir/share/icons/hicolor/512x512/apps/re.frida.Luma.png
 export DESKTOP=./AppDir/share/applications/re.frida.Luma.desktop
+export STARTUPWMCLASS=re.frida.Luma
 export GTK_CLASS_FIX=1
 
 quick-sharun ./AppDir/bin/*
