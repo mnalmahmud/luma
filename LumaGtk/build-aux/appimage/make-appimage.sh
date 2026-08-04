@@ -5,9 +5,9 @@ set -eu
 ARCH=$(uname -m)
 VERSION=${LUMA_VERSION:-1.0.0}
 
-# echo "Installing package dependencies..."
-# echo "---------------------------------------------------------------"
-# pacman -Syu --noconfirm PACKAGESHERE
+echo "Installing package dependencies..."
+echo "---------------------------------------------------------------"
+pacman -Syu --noconfirm libgee
 
 echo "Installing debloated packages..."
 echo "---------------------------------------------------------------"
