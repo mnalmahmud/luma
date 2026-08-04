@@ -29,6 +29,11 @@ export DESKTOP=./AppDir/share/applications/re.frida.Luma.desktop
 export STARTUPWMCLASS=re.frida.Luma
 export GTK_CLASS_FIX=1
 
+# Disable aggressive stripping which breaks Swift metadata and causes the Frida module path crash
+sed -i 's/strip -s/echo strip -s/g' $(which quick-sharun)
+
 quick-sharun ./AppDir/bin/*
+
+patchelf --set-rpath '$ORIGIN/../../lib/luma:$ORIGIN/../../lib/luma/swift' ./AppDir/shared/bin/luma
 
 quick-sharun --make-appimage
