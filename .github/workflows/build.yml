@@ -902,6 +902,7 @@ jobs:
           path: luma-${{ env.LUMA_VERSION }}-fedora-43-x86_64.rpm
 
   ubuntu:
+    if: false
     runs-on: ubuntu-latest
     container: ubuntu:${{ matrix.release }}
     needs: version
@@ -1072,15 +1073,17 @@ jobs:
   appimage:
     runs-on: ubuntu-latest
     container: ghcr.io/pkgforge-dev/archlinux:latest
-    needs: [version, ubuntu]
+    needs: [version] #, ubuntu]
     env:
-      LUMA_VERSION: ${{ needs.version.outputs.version }}
+      LUMA_VERSION: 1.2.3 # ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v8
-        with:
-          name: luma-${{ env.LUMA_VERSION }}-ubuntu-26.04-x86_64.deb
+      #- uses: actions/download-artifact@v8
+      #  with:
+      #    name: luma-${{ env.LUMA_VERSION }}-ubuntu-26.04-x86_64.deb
+      - name: Download prebuilt deb
+        run: curl -L https://github.com/frida/luma/releases/download/1.2.3/luma-1.2.3-ubuntu-26.04-x86_64.deb -o "luma-${{ env.LUMA_VERSION }}-ubuntu-26.04-x86_64.deb"
 
       - name: Preparing Container
         uses: pkgforge-dev/anylinux-setup-action@v2
