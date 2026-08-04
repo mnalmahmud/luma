@@ -7,7 +7,7 @@ VERSION=${LUMA_VERSION:-1.0.0}
 
 echo "Installing package dependencies..."
 echo "---------------------------------------------------------------"
-pacman -Syu --noconfirm libgee libadwaita webkitgtk-6.0 libepoxy libzip libnice
+pacman -Syu --noconfirm libgee libadwaita webkitgtk-6.0 libepoxy libzip libnice patchelf
 
 echo "Installing debloated packages..."
 echo "---------------------------------------------------------------"
@@ -15,8 +15,10 @@ get-debloated-pkgs --add-common --prefer-nano
 
 mkdir -p ./AppDir/
 bsdtar -xOf ./luma-$VERSION-ubuntu-26.04-x86_64.deb data.tar.zst | bsdtar -xf - --strip-components=2 -C ./AppDir/
-mv -f ./AppDir/lib/luma/* ./AppDir/bin/
-rm -rf ./AppDir/lib
+
+mkdir -p ./AppDir/bin/
+mv -f ./AppDir/lib/luma/luma ./AppDir/bin/luma
+patchelf --set-rpath '$ORIGIN/../lib/luma' ./AppDir/bin/luma
 
 export ARCH VERSION
 export OUTPATH=$(pwd)

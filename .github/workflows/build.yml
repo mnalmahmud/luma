@@ -1551,7 +1551,8 @@ jobs:
             artifacts/luma-*.rpm
             artifacts/luma-*.snap
             artifacts/luma-*.flatpak
-            artifacts/luma-*.AppImage
+            artifacts/Luma-*.AppImage
+            artifacts/Luma-*.AppImage.zsync
           fail_on_unmatched_files: true
 
       - name: Check out main for package.nix bump
