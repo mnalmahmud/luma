@@ -16,6 +16,9 @@ get-debloated-pkgs --add-common --prefer-nano
 mkdir -p ./AppDir/
 bsdtar -xOf ./luma-$VERSION-ubuntu-26.04-x86_64.deb data.tar.zst | bsdtar -xf - --strip-components=2 -C ./AppDir/
 
+mkdir -p ./AppDir/bin/
+mv -f ./AppDir/lib/luma/luma_LumaCore.resources ./AppDir/bin/
+
 # Compile memory patch library to resolve Sharun's AT_BASE=0 bug for Frida-gum
 cat << 'EOF' > ./AppDir/.patch.cpp
 #ifndef _GNU_SOURCE
