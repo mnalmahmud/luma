@@ -238,7 +238,7 @@ export DESKTOP=./AppDir/share/applications/re.frida.Luma.desktop
 export STARTUPWMCLASS=re.frida.Luma
 export GTK_CLASS_FIX=1
 
-export LD_LIBRARY_PATH=./AppDir/lib/luma:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=./AppDir/lib/luma${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
 quick-sharun ./AppDir/bin/* ./AppDir/lib/luma/*
 
