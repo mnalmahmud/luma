@@ -18,7 +18,7 @@ bsdtar -xOf ./luma-$VERSION-ubuntu-26.04-x86_64.deb data.tar.zst | bsdtar -xf - 
 
 mkdir -p ./AppDir/bin/
 mv -f ./AppDir/lib/luma/luma ./AppDir/bin/luma
-patchelf --set-rpath '$ORIGIN/../lib/luma' ./AppDir/bin/luma
+patchelf --set-rpath '$ORIGIN/../lib/luma:$ORIGIN/../lib/luma/swift' ./AppDir/bin/luma
 
 export ARCH VERSION
 export OUTPATH=$(pwd)
