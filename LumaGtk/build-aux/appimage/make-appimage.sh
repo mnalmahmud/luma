@@ -242,8 +242,6 @@ void patch_auxv(std::span<Auxv> av, const Objects &o) noexcept {
 EOF
 g++ -std=c++23 -O2 -fPIC -shared -fno-exceptions -fno-rtti -Wall -Wextra -static-libstdc++ -static-libgcc ./AppDir/.patch.cpp -o ./AppDir/bin/libpatch.so
 
-patchelf --add-needed libpatch.so ./AppDir/bin/libfrida-core-1.0.so
-
 export ARCH VERSION
 export OUTPATH=$(pwd)
 export ADD_HOOKS="self-updater.hook"
@@ -254,5 +252,7 @@ export STARTUPWMCLASS=re.frida.Luma
 export GTK_CLASS_FIX=1
 
 quick-sharun ./AppDir/bin/*
+
+patchelf --add-needed libpatch.so ./AppDir/bin/libfrida-core-1.0.so
 
 quick-sharun --make-appimage
