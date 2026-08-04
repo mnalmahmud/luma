@@ -16,8 +16,6 @@ get-debloated-pkgs --add-common --prefer-nano
 mkdir -p ./AppDir/
 bsdtar -xOf ./luma-$VERSION-ubuntu-26.04-x86_64.deb data.tar.zst | bsdtar -xf - --strip-components=2 -C ./AppDir/
 
-mkdir -p ./AppDir/bin/
-mv -f ./AppDir/lib/luma/luma_LumaCore.resources ./AppDir/bin/
 
 # Compile memory patch library to resolve Sharun's AT_BASE=0 bug for Frida-gum
 cat << 'EOF' > ./AppDir/.patch.cpp
@@ -232,6 +230,9 @@ g++ -std=c++23 -O2 -fPIC -shared -fno-exceptions -fno-rtti -Wall -Wextra -static
 
 patchelf --add-needed libpatch.so ./AppDir/lib/luma/libfrida-core-1.0.so
 
+mv -f ./AppDir/lib/luma/* ./AppDir/bin/
+rm -rf ./AppDir/lib
+
 export ARCH VERSION
 export OUTPATH=$(pwd)
 export ADD_HOOKS="self-updater.hook"
@@ -241,8 +242,8 @@ export DESKTOP=./AppDir/share/applications/re.frida.Luma.desktop
 export STARTUPWMCLASS=re.frida.Luma
 export GTK_CLASS_FIX=1
 
-export LD_LIBRARY_PATH=./AppDir/lib/luma${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export LD_LIBRARY_PATH=./AppDir/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
-quick-sharun ./AppDir/bin/* ./AppDir/lib/luma/*
+quick-sharun ./AppDir/bin/*
 
 quick-sharun --make-appimage
