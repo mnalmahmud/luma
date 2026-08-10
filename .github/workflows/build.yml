@@ -1811,7 +1811,7 @@ jobs:
       - name: Generate probe app
         run: |
           cd $RUNNER_TEMP
-          skip init --no-build --appid=re.frida.luma.probe skip-probe LumaProbe
+          skip init --native-app --appid=re.frida.luma.probe skip-probe LumaProbe
 
       - name: Build probe app
         run: |
@@ -1846,7 +1846,7 @@ jobs:
       - name: Verify library was packaged
         run: |
           cd $RUNNER_TEMP/skip-probe
-          skip android build --pkg-config-path $PREFIX/lib/pkgconfig
+          skip android build
           APK=$(find . -name '*.apk' | head -1)
           if [ -z "$APK" ]; then
             echo "skip android build produced no APK; artifacts were:" >&2
