@@ -1709,7 +1709,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: /tmp/host-prefix
-          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v4
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v5
 
       # LumaBundleCompiler links FridaCore and runs on the build machine,
       # so the host needs its own frida-core independent of the Android one.
@@ -1727,6 +1727,11 @@ jobs:
           cd $RUNNER_TEMP/frida-core-host
           git checkout $FRIDA_CORE_REF
           git submodule update --init --recursive --depth 1
+          # The tool only ever constructs a PackageManager, so it needs the
+          # registry client and the compiler, not a way to reach devices.
+          # Fruity is the one that matters: its TLS-PSK code calls OpenSSL,
+          # which lives in the SDK rather than the merged archive, and
+          # SwiftPM's pkg-config never asks for Libs.private.
           ./configure \
               --prefix=$HOST_PREFIX \
               --enable-compiler-backend \
@@ -1734,7 +1739,8 @@ jobs:
               --disable-portal \
               --disable-inject \
               --disable-gadget \
-              --disable-tests
+              --disable-tests \
+              -- -Dfruity_backend=disabled
           make -j$(nproc)
           make install
 
@@ -1765,7 +1771,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: /tmp/host-prefix
-          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v4
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v5
 
       - name: Install Swift
         run: |
