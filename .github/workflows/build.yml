@@ -1709,10 +1709,17 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: /tmp/host-prefix
-          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v2
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v3
 
       # LumaBundleCompiler links FridaCore and runs on the build machine,
       # so the host needs its own frida-core independent of the Android one.
+      #
+      # Static, not shared: a shared frida-core keeps its GLib hidden and
+      # publishes Requires: glib-2.0, so the consumer links a second copy
+      # from the bundled SDK. Neither can interpose on the other, and the
+      # tool then hands GLib objects built by one to the other -- which is
+      # what segfaulted g_ptr_set_add. The static build merges GLib into
+      # libfrida-core-1.0.a, leaving exactly one.
       - name: Build host frida-core
         if: steps.host-frida-cache.outputs.cache-hit != 'true'
         run: |
@@ -1722,7 +1729,6 @@ jobs:
           git submodule update --init --recursive --depth 1
           ./configure \
               --prefix=$HOST_PREFIX \
-              --enable-shared \
               --enable-compiler-backend \
               --disable-server \
               --disable-portal \
@@ -1754,7 +1760,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: /tmp/host-prefix
-          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v2
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v3
 
       - name: Install Swift
         run: |
@@ -1823,41 +1829,29 @@ jobs:
           test "$(grep -c 'g_variant_new_int64(gint64(number))' $M)" = 2
           test "$(grep -c 'g_variant_new_uint64(guint64(number))' $M)" = 2
 
-      # luma-bundle-compiler segfaults inside glib during package install,
-      # and the faulting frame resolves inside the executable rather than
-      # any library, so the tool has a glib of its own. frida-core's shared
-      # build leaves glib to the consumer's glib-2.0.pc while linking its
-      # own copy in, which would put two of them in one process. Confirm
-      # that before changing how frida-core is built.
-      - name: Report glib provenance
-        continue-on-error: true
+      # A shared frida-core hides its GLib and asks the consumer to bring
+      # its own, so the tool ends up with a second copy that cannot
+      # interpose -- GLib objects then cross between the two and crash.
+      # Nothing in the build fails when that happens, so assert the shape
+      # of the link rather than wait for the next segfault.
+      - name: Check the tool links one frida-core statically
         env:
           USE_SYSTEM_FRIDA: "1"
         run: |
           HOST_PC=$(find $HOST_PREFIX/lib -name frida-core-1.0.pc -printf '%h\n' | head -1)
           export PKG_CONFIG_PATH=$HOST_PC:$HOST_PREFIX/sdk/lib/pkgconfig
-          export LD_LIBRARY_PATH=${HOST_PC%/pkgconfig}
 
-          echo "=== frida-core artifacts ==="
           find $HOST_PREFIX -name 'libfrida-core*' -printf '%s\t%p\n' | sort
-          echo "=== frida-core-1.0.pc ==="
-          cat $HOST_PC/frida-core-1.0.pc
-          echo "=== SDK glib artifacts ==="
-          find $HOST_PREFIX/sdk -name 'libglib-2.0.*' -printf '%s\t%p\n' | sort
-          echo "=== resolved link line ==="
           pkg-config --libs frida-core-1.0
 
           swift build --product luma-bundle-compiler
           TOOL=$(swift build --product luma-bundle-compiler --show-bin-path)/luma-bundle-compiler
-          echo "=== shared objects the tool pulls in ==="
-          ldd $TOOL
-          echo "=== who defines g_ptr_set_add ==="
-          echo "in the tool:"
-          nm -C $TOOL | grep ' g_ptr_set_add' || echo "  (absent)"
-          for so in $(find $HOST_PREFIX -name 'libfrida-core*.so*' -type f); do
-            echo "exported by $so:"
-            nm -D --defined-only $so | grep ' g_ptr_set_add' || echo "  (absent)"
-          done
+          if ldd $TOOL | grep frida; then
+            echo "luma-bundle-compiler loads frida-core dynamically; its GLib is a second copy." >&2
+            exit 1
+          fi
+          # Present at all means the merged archive supplied it.
+          nm $TOOL | grep -q ' g_ptr_set_add'
 
       - name: Generate agent bundle
         env:
@@ -1870,7 +1864,6 @@ jobs:
           test -n "$HOST_PC"
           test -f $HOST_PREFIX/sdk/lib/pkgconfig/glib-2.0.pc
           export PKG_CONFIG_PATH=$HOST_PC:$HOST_PREFIX/sdk/lib/pkgconfig
-          export LD_LIBRARY_PATH=${HOST_PC%/pkgconfig}
           swift run luma-bundle-compiler \
               --config       "$PWD/Agent/bundle.json" \
               --project-root "$PWD" \
