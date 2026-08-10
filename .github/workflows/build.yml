@@ -1546,7 +1546,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: /tmp/android-prefix
-          key: ${{ runner.os }}-android-deps-${{ matrix.frida_host }}-frida-${{ env.FRIDA_CORE_REF }}-r2-${{ env.RADARE2_REF }}-v1
+          key: ${{ runner.os }}-android-deps-${{ matrix.frida_host }}-frida-${{ env.FRIDA_CORE_REF }}-r2-${{ env.RADARE2_REF }}-v2
 
       - name: Install system dependencies
         if: steps.cache.outputs.cache-hit != 'true'
@@ -1592,7 +1592,6 @@ jobs:
           ./configure \
               --host=${{ matrix.frida_host }} \
               --prefix=$PREFIX \
-              --enable-shared \
               --enable-compiler-backend \
               --disable-server \
               --disable-portal \
@@ -1617,7 +1616,8 @@ jobs:
           mkdir -p $PREFIX/sdk
           cp -a "$SDK_DIR"/. $PREFIX/sdk/
           for pc in $PREFIX/sdk/lib/pkgconfig/*.pc; do
-            sed -i "s|^prefix=.*|prefix=$PREFIX/sdk|" "$pc"
+            sed -i -e "s|\${frida_sdk_prefix}|$PREFIX/sdk|g" \
+                   -e "s|^prefix=.*|prefix=$PREFIX/sdk|" "$pc"
           done
 
       # radare2's own Android cross-files, retargeted: they still point at
@@ -1676,7 +1676,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: /tmp/android-prefix
-          key: ${{ runner.os }}-android-deps-${{ matrix.frida_host }}-frida-${{ env.FRIDA_CORE_REF }}-r2-${{ env.RADARE2_REF }}-v1
+          key: ${{ runner.os }}-android-deps-${{ matrix.frida_host }}-frida-${{ env.FRIDA_CORE_REF }}-r2-${{ env.RADARE2_REF }}-v2
 
       - uses: actions/upload-artifact@v7
         with:
@@ -1935,41 +1935,7 @@ jobs:
           done > Sources/LumaProbe/ModuleProbe.swift
           skip android build 2>&1 | grep -o 'LUMA-PROBE [A-Za-z]* [a-z]*' | sort -u | tee -a $GITHUB_STEP_SUMMARY
 
-      # Skip generates build.gradle.kts from Package.swift, so the only
-      # supported way in is skip.yml's gradle passthrough. Whether that
-      # reaches sourceSets is exactly what this proves.
-      - name: Add prebuilt library to probe
-        run: |
-          cd $RUNNER_TEMP/skip-probe
-          mkdir -p jniLibs/arm64-v8a
-          # frida installs the soname-qualified libfrida-core-1.0.so, not
-          # the bare name, and the APK has to carry it verbatim.
-          SO=$(find $PREFIX/lib -maxdepth 1 -name 'libfrida-core*.so' | head -1)
-          test -n "$SO"
-          cp "$SO" jniLibs/arm64-v8a/
-          echo "SO_NAME=$(basename "$SO")" >> $GITHUB_ENV
-          # Every Skip dependency ships a skip.yml of its own, so a bare
-          # find walks into the read-only checkouts under .build.
-          SKIP_YML=Sources/LumaProbe/Skip/skip.yml
-          if [ ! -f "$SKIP_YML" ]; then
-            echo "No skip.yml at $SKIP_YML; layout assumption is wrong." >&2
-            echo "Candidates outside .build:" >&2
-            find . -path ./.build -prune -o -name skip.yml -print >&2
-            exit 1
-          fi
-          cat >> "$SKIP_YML" <<EOF
-          build:
-            contents:
-              - block: 'android'
-                contents:
-                  - block: 'sourceSets'
-                    contents:
-                      - block: 'main'
-                        contents:
-                          - 'jniLibs.srcDirs("$RUNNER_TEMP/skip-probe/jniLibs")'
-          EOF
-
-      - name: Verify library was packaged
+      - name: Verify native libraries were packaged
         run: |
           cd $RUNNER_TEMP/skip-probe
           # skip android build only cross-compiles the Swift libraries;
@@ -1981,8 +1947,11 @@ jobs:
             find . -type f \( -name '*.aar' -o -name '*.aab' -o -name '*.so' \) >&2
             exit 1
           fi
-          echo "Inspecting $APK for $SO_NAME"
-          unzip -l "$APK" | grep -F "$SO_NAME"
+          # frida-core and radare2 are static now, so they arrive inside
+          # the Swift module libraries rather than as files of their own.
+          # What has to hold is that Skip packages arm64-v8a libs at all.
+          echo "Inspecting $APK"
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/.*\.so'
 
   release:
     needs: [macos, ios, fedora, ubuntu, appimage, flatpak, snap, windows]
