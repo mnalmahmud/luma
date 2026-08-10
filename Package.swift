@@ -14,11 +14,16 @@ let usesXcodePackageResolution = manifestFileno != nil && manifestFileno != "4"
 #else
 let usesXcodePackageResolution = false
 #endif
-let lumaCoreExcludes = usesXcodePackageResolution ? [] : ["Generated"]
-let lumaCorePlugins: [Target.PluginUsage] = usesXcodePackageResolution ? [] : [
+// Cross-compiling would otherwise put host LumaBundleCompiler and target
+// LumaCore in one graph, where both resolve frida-core-1.0 through the
+// single pkg-config path and one of them gets the wrong architecture.
+let usesPregeneratedAgent = usesXcodePackageResolution
+    || ProcessInfo.processInfo.environment["LUMA_AGENT_PREGENERATED"] != nil
+let lumaCoreExcludes = usesPregeneratedAgent ? [] : ["Generated"]
+let lumaCorePlugins: [Target.PluginUsage] = usesPregeneratedAgent ? [] : [
     .plugin(name: "LumaBundlePlugin"),
 ]
-let lumaBundlePluginTargets: [Target] = usesXcodePackageResolution ? [] : [
+let lumaBundlePluginTargets: [Target] = usesPregeneratedAgent ? [] : [
     .plugin(
         name: "LumaBundlePlugin",
         capability: .buildTool(),
