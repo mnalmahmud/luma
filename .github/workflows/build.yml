@@ -1937,9 +1937,13 @@ jobs:
           test -n "$SO"
           cp "$SO" jniLibs/arm64-v8a/
           echo "SO_NAME=$(basename "$SO")" >> $GITHUB_ENV
-          SKIP_YML=$(find . -name skip.yml | head -1)
-          if [ -z "$SKIP_YML" ]; then
-            echo "No skip.yml in the generated project; layout assumption is wrong." >&2
+          # Every Skip dependency ships a skip.yml of its own, so a bare
+          # find walks into the read-only checkouts under .build.
+          SKIP_YML=Sources/LumaProbe/Skip/skip.yml
+          if [ ! -f "$SKIP_YML" ]; then
+            echo "No skip.yml at $SKIP_YML; layout assumption is wrong." >&2
+            echo "Candidates outside .build:" >&2
+            find . -path ./.build -prune -o -name skip.yml -print >&2
             exit 1
           fi
           cat >> "$SKIP_YML" <<EOF
