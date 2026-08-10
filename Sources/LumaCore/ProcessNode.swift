@@ -2,6 +2,13 @@ import Foundation
 import Frida
 import Observation
 
+#if os(Android)
+// Bionic has no /bin; the shell only ever lives under /system/bin.
+private let pipelineShellPath = "/system/bin/sh"
+#elseif os(macOS) || os(Linux)
+private let pipelineShellPath = "/bin/sh"
+#endif
+
 @Observable
 @MainActor
 public final class ProcessNode: Identifiable {
@@ -808,12 +815,12 @@ public final class ProcessNode: Identifiable {
     }
 
     private func runPipeline(_ command: String, input: Data) async throws -> Data {
-        #if os(macOS) || os(Linux)
+        #if os(macOS) || os(Linux) || os(Android)
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/bin/sh")
+                    process.executableURL = URL(fileURLWithPath: pipelineShellPath)
                     process.arguments = ["-lc", command]
 
                     let stdinPipe = Pipe()
@@ -856,7 +863,7 @@ public final class ProcessNode: Identifiable {
             }
         }
         #else
-        throw LumaCoreError.notSupported("Running shell pipelines is only supported on macOS and Linux")
+        throw LumaCoreError.notSupported("Running shell pipelines is only supported on macOS, Linux and Android")
         #endif
     }
 
