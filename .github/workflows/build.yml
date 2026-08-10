@@ -1649,14 +1649,20 @@ jobs:
           # takes it from the subproject, so a cross build hands meson an
           # Android binary and it asks for an exe_wrapper. sdb ships a
           # sdb_native_exe for this and forgets native:, so build the same
-          # pinned source for the runner and point radare2 at that instead.
+          # pinned source for the runner. Only the command positions move --
+          # sdb_exe is still the artifact r2sdb installs and depends on.
           meson subprojects download sdb
           meson setup build-sdb subprojects/sdb
           ninja -C build-sdb sdb
           sed -i \
-              "s|^sdb_exe = libsdb_sp.get_variable('sdb_exe')|sdb_exe = find_program('$PWD/build-sdb/sdb')|" \
+              -e "s|^sdb_exe = libsdb_sp.get_variable('sdb_exe')|&\nsdb_native = find_program('$PWD/build-sdb/sdb')|" \
+              -e "/_gen_cmd/ s|sdb_exe|sdb_native|g" \
               meson.build
-          grep -q "^sdb_exe = find_program" meson.build
+          sed -i "s|command: \[sdb_exe,|command: [sdb_native,|" \
+              libr/anal/d/meson.build libr/asm/d/meson.build libr/bin/d/meson.build \
+              libr/bin/d/dll/meson.build libr/fs/d/meson.build libr/syscall/d/meson.build
+          grep -q "^sdb_native = find_program" meson.build
+          ! grep -rq "command: \[sdb_exe," --include=meson.build .
           meson setup build \
               --cross-file "$CROSS" \
               --prefix=$PREFIX \
