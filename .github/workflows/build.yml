@@ -1709,7 +1709,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: /tmp/host-prefix
-          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v1
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v2
 
       # LumaBundleCompiler links FridaCore and runs on the build machine,
       # so the host needs its own frida-core independent of the Android one.
@@ -1732,12 +1732,29 @@ jobs:
           make -j$(nproc)
           make install
 
+      # frida-core-1.0.pc requires glib-2.0, and the runner has no
+      # libglib2.0-dev. Same answer as the Android prefix: frida already
+      # built one, so keep its SDK next to the library it belongs to.
+      - name: Stage host frida's bundled SDK
+        if: steps.host-frida-cache.outputs.cache-hit != 'true'
+        run: |
+          SDK_DIR=$(find $RUNNER_TEMP/frida-core-host/deps -maxdepth 1 -type d -name 'sdk-*' | head -1)
+          if [ -z "$SDK_DIR" ]; then
+            echo "No prebuilt SDK found under frida-core-host/deps; glib will be missing." >&2
+            exit 1
+          fi
+          mkdir -p $HOST_PREFIX/sdk
+          cp -a "$SDK_DIR"/. $HOST_PREFIX/sdk/
+          for pc in $HOST_PREFIX/sdk/lib/pkgconfig/*.pc; do
+            sed -i "s|^prefix=.*|prefix=$HOST_PREFIX/sdk|" "$pc"
+          done
+
       - name: Save host frida-core cache
         if: steps.host-frida-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: /tmp/host-prefix
-          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v1
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v2
 
       - name: Install Swift
         run: |
@@ -1761,9 +1778,10 @@ jobs:
           # Meson gives the native build Debian's multiarch libdir, so the
           # host .pc files land beside lib/x86_64-linux-gnu while the cross
           # build keeps a plain lib. Ask where they actually are.
-          HOST_PC=$(find $HOST_PREFIX -name frida-core-1.0.pc -printf '%h\n' | head -1)
+          HOST_PC=$(find $HOST_PREFIX/lib -name frida-core-1.0.pc -printf '%h\n' | head -1)
           test -n "$HOST_PC"
-          export PKG_CONFIG_PATH=$HOST_PC
+          test -f $HOST_PREFIX/sdk/lib/pkgconfig/glib-2.0.pc
+          export PKG_CONFIG_PATH=$HOST_PC:$HOST_PREFIX/sdk/lib/pkgconfig
           export LD_LIBRARY_PATH=${HOST_PC%/pkgconfig}
           swift run luma-bundle-compiler \
               --config       "$PWD/Agent/bundle.json" \
