@@ -1562,7 +1562,10 @@ jobs:
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: ${{ env.ANDROID_NDK_VERSION }}
-          local-cache: true
+          # Both matrix legs race to reserve one setup-ndk-<ver>-<os> key, and
+          # the loser's partial archive is what later runs restore -- clang goes
+          # missing. The $PREFIX cache below already covers the expensive part.
+          local-cache: false
 
       - name: Clone frida-core
         if: steps.cache.outputs.cache-hit != 'true'
