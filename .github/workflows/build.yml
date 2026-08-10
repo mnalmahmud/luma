@@ -1806,6 +1806,23 @@ jobs:
           grep -q "frida_device_enable_spawn_gating" $FS/Frida/Generated.swift
           git -C $FS --no-pager diff --stat
 
+      # On LP64 Linux glib typedefs gint64 as long, so Swift imports it as
+      # Int; Apple's glib uses long long and imports as Int64. Two Marshal
+      # cases hand Int64/UInt64 straight to g_variant_new_*, which only
+      # type-checks against Apple's headers. The neighbouring Int/UInt
+      # cases already convert, so make these match.
+      - name: Patch frida-swift for LP64 glib types
+        run: |
+          M=.build/checkouts/frida-swift/Frida/Marshal.swift
+          chmod u+w $M
+          sed -i \
+              -e 's|g_variant_new_int64(number)|g_variant_new_int64(gint64(number))|' \
+              -e 's|g_variant_new_uint64(number)|g_variant_new_uint64(guint64(number))|' \
+              $M
+          # Both the pre-existing and the newly wrapped call must be there.
+          test "$(grep -c 'g_variant_new_int64(gint64(number))' $M)" = 2
+          test "$(grep -c 'g_variant_new_uint64(guint64(number))' $M)" = 2
+
       - name: Generate agent bundle
         env:
           USE_SYSTEM_FRIDA: "1"
