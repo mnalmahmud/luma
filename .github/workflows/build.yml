@@ -1709,7 +1709,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: /tmp/host-prefix
-          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v3
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v4
 
       # LumaBundleCompiler links FridaCore and runs on the build machine,
       # so the host needs its own frida-core independent of the Android one.
@@ -1751,8 +1751,13 @@ jobs:
           fi
           mkdir -p $HOST_PREFIX/sdk
           cp -a "$SDK_DIR"/. $HOST_PREFIX/sdk/
+          # frida packages the SDK relocatable by rewriting its build
+          # prefix to ${frida_sdk_prefix} and having consumers pass
+          # --define-variable, which SwiftPM's pkg-config cannot. Finish
+          # the relocation here instead.
           for pc in $HOST_PREFIX/sdk/lib/pkgconfig/*.pc; do
-            sed -i "s|^prefix=.*|prefix=$HOST_PREFIX/sdk|" "$pc"
+            sed -i -e "s|\${frida_sdk_prefix}|$HOST_PREFIX/sdk|g" \
+                   -e "s|^prefix=.*|prefix=$HOST_PREFIX/sdk|" "$pc"
           done
 
       - name: Save host frida-core cache
@@ -1760,7 +1765,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: /tmp/host-prefix
-          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v3
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v4
 
       - name: Install Swift
         run: |
