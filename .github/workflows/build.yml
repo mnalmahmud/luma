@@ -1643,6 +1643,20 @@ jobs:
               -e "s|bin/[a-z0-9_]*-linux-android-strip|bin/llvm-strip|" \
               "$CROSS"
           cat "$CROSS"
+          grep -q "^c *= *'$NDK/" "$CROSS"
+          grep -q "^sys_root = '$SYSROOT'" "$CROSS"
+          # radare2 runs sdb at build time to generate its .sdb databases, but
+          # takes it from the subproject, so a cross build hands meson an
+          # Android binary and it asks for an exe_wrapper. sdb ships a
+          # sdb_native_exe for this and forgets native:, so build the same
+          # pinned source for the runner and point radare2 at that instead.
+          meson subprojects download sdb
+          meson setup build-sdb subprojects/sdb
+          ninja -C build-sdb sdb
+          sed -i \
+              "s|^sdb_exe = libsdb_sp.get_variable('sdb_exe')|sdb_exe = find_program('$PWD/build-sdb/sdb')|" \
+              meson.build
+          grep -q "^sdb_exe = find_program" meson.build
           meson setup build \
               --cross-file "$CROSS" \
               --prefix=$PREFIX \
