@@ -1784,6 +1784,8 @@ jobs:
           swift package resolve
           FS=.build/checkouts/frida-swift
           test -f $FS/Frida/Generated.swift
+          # SwiftPM checks dependencies out read-only.
+          chmod u+w $FS/Frida/Generated.swift
           git clone -q --depth 1 https://github.com/frida/frida-bindgen.git $RUNNER_TEMP/frida-bindgen
           gir() {
             local found
