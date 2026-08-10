@@ -1936,10 +1936,16 @@ jobs:
       - name: Report module availability
         run: |
           cd $RUNNER_TEMP/skip-probe
+          # skip builds for Apple platforms too, so gate on os(Android) or
+          # the answers arrive mixed together and iOS wins the sort.
           for m in UIKit AppKit SwiftUI Charts SwiftyMonaco Combine Observation; do
-            printf '#if canImport(%s)\n#warning("LUMA-PROBE %s yes")\n#else\n#warning("LUMA-PROBE %s no")\n#endif\n' "$m" "$m" "$m"
+            printf '#if os(Android)\n#if canImport(%s)\n#warning("LUMA-PROBE %s yes")\n#else\n#warning("LUMA-PROBE %s no")\n#endif\n#endif\n' "$m" "$m" "$m"
           done > Sources/LumaProbe/ModuleProbe.swift
-          skip android build 2>&1 | grep -o 'LUMA-PROBE [A-Za-z]* [a-z]*' | sort -u | tee -a $GITHUB_STEP_SUMMARY
+          skip android build 2>&1 | tee module-probe.log
+          # The compiler quotes the untaken #else branch back, so match the
+          # diagnostic rather than any line mentioning the marker.
+          grep -oE 'warning: LUMA-PROBE [A-Za-z]+ (yes|no)' module-probe.log \
+              | sed 's|warning: ||' | sort -u | tee -a $GITHUB_STEP_SUMMARY
 
       - name: Verify native libraries were packaged
         run: |
