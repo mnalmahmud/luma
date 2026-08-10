@@ -1922,6 +1922,19 @@ jobs:
           cd $RUNNER_TEMP/skip-probe
           skip android build
 
+      # Every phone view in Luma/ sits behind #if canImport(UIKit), so on
+      # a platform without it they compile to nothing and a green build
+      # says nothing. Other files import Charts and SwiftyMonaco with no
+      # guard at all. Ask the compiler which of these exist before
+      # planning around any of them.
+      - name: Report module availability
+        run: |
+          cd $RUNNER_TEMP/skip-probe
+          for m in UIKit AppKit SwiftUI Charts SwiftyMonaco Combine Observation; do
+            printf '#if canImport(%s)\n#warning("LUMA-PROBE %s yes")\n#else\n#warning("LUMA-PROBE %s no")\n#endif\n' "$m" "$m" "$m"
+          done > Sources/LumaProbe/ModuleProbe.swift
+          skip android build 2>&1 | grep -o 'LUMA-PROBE [A-Za-z]* [a-z]*' | sort -u | tee -a $GITHUB_STEP_SUMMARY
+
       # Skip generates build.gradle.kts from Package.swift, so the only
       # supported way in is skip.yml's gradle passthrough. Whether that
       # reaches sourceSets is exactly what this proves.
@@ -1959,10 +1972,12 @@ jobs:
       - name: Verify library was packaged
         run: |
           cd $RUNNER_TEMP/skip-probe
-          skip android build
-          APK=$(find . -name '*.apk' | head -1)
+          # skip android build only cross-compiles the Swift libraries;
+          # assembling them into an APK is what skip export does.
+          skip export -d skip-export --debug --verbose
+          APK=$(find skip-export -name '*.apk' | head -1)
           if [ -z "$APK" ]; then
-            echo "skip android build produced no APK; artifacts were:" >&2
+            echo "skip export produced no APK; artifacts were:" >&2
             find . -type f \( -name '*.aar' -o -name '*.aab' -o -name '*.so' \) >&2
             exit 1
           fi
