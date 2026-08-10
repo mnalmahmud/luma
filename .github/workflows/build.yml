@@ -1758,8 +1758,13 @@ jobs:
         env:
           USE_SYSTEM_FRIDA: "1"
         run: |
-          export PKG_CONFIG_PATH=$HOST_PREFIX/lib/pkgconfig
-          export LD_LIBRARY_PATH=$HOST_PREFIX/lib
+          # Meson gives the native build Debian's multiarch libdir, so the
+          # host .pc files land beside lib/x86_64-linux-gnu while the cross
+          # build keeps a plain lib. Ask where they actually are.
+          HOST_PC=$(find $HOST_PREFIX -name frida-core-1.0.pc -printf '%h\n' | head -1)
+          test -n "$HOST_PC"
+          export PKG_CONFIG_PATH=$HOST_PC
+          export LD_LIBRARY_PATH=${HOST_PC%/pkgconfig}
           swift run luma-bundle-compiler \
               --config       "$PWD/Agent/bundle.json" \
               --project-root "$PWD" \
@@ -1783,6 +1788,7 @@ jobs:
   skip-probe:
     runs-on: macos-26
     needs: android-deps
+    timeout-minutes: 45
     env:
       SKIP_MODE: fuse
       PREFIX: /tmp/android-prefix
