@@ -7,7 +7,7 @@ on:
   pull_request:
 
 env:
-  FRIDA_CORE_REF: "b0c3df8b7685e166efb2a7afe82f9d2186186c5f"
+  FRIDA_CORE_REF: "17.17.0"
   RADARE2_REF: "7ed1e8c6fd000b99c8aa6835e12bef1657d92746"
   SPARKLE_VERSION: "2.9.1"
   SWIFT_VERSION: "6.3.3"
@@ -1771,6 +1771,39 @@ jobs:
               --checksum "$SWIFT_ANDROID_SDK_CHECKSUM"
           swift sdk list
 
+      # frida-swift checks in Frida/Generated.swift and its tags lag the
+      # frida-core they claim: even tag 17.17.0 ships bindings emitted for
+      # 17.15.4 and still pins that xcframework, so calls like
+      # frida_device_enable_spawn_gating are short the options parameter
+      # 17.16.0 added. Apple builds never notice because they take the
+      # pinned xcframework; pkg-config builds get the real headers. Rather
+      # than patch the generated file, re-run the generator frida-swift
+      # already uses, against the GIRs this frida-core just installed.
+      - name: Regenerate frida-swift bindings
+        run: |
+          swift package resolve
+          FS=.build/checkouts/frida-swift
+          test -f $FS/Frida/Generated.swift
+          git clone -q --depth 1 https://github.com/frida/frida-bindgen.git $RUNNER_TEMP/frida-bindgen
+          gir() {
+            local found
+            found=$(find $HOST_PREFIX -name "$1" -print -quit)
+            if [ -z "$found" ]; then
+              echo "Missing $1 under $HOST_PREFIX; cannot regenerate bindings." >&2
+              exit 1
+            fi
+            echo "$found"
+          }
+          PYTHONPATH=$FS:$RUNNER_TEMP/frida-bindgen python3 -m frida_swift \
+              --frida-gir="$(gir Frida-1.0.gir)" \
+              --glib-gir="$(gir GLib-2.0.gir)" \
+              --gobject-gir="$(gir GObject-2.0.gir)" \
+              --gio-gir="$(gir Gio-2.0.gir)" \
+              --output-swift=$FS/Frida/Generated.swift
+          # The regenerated file must actually track the headers we built.
+          grep -q "frida_device_enable_spawn_gating" $FS/Frida/Generated.swift
+          git -C $FS --no-pager diff --stat
+
       - name: Generate agent bundle
         env:
           USE_SYSTEM_FRIDA: "1"
@@ -1843,7 +1876,12 @@ jobs:
         run: |
           cd $RUNNER_TEMP/skip-probe
           mkdir -p jniLibs/arm64-v8a
-          cp $PREFIX/lib/libfrida-core.so jniLibs/arm64-v8a/
+          # frida installs the soname-qualified libfrida-core-1.0.so, not
+          # the bare name, and the APK has to carry it verbatim.
+          SO=$(find $PREFIX/lib -maxdepth 1 -name 'libfrida-core*.so' | head -1)
+          test -n "$SO"
+          cp "$SO" jniLibs/arm64-v8a/
+          echo "SO_NAME=$(basename "$SO")" >> $GITHUB_ENV
           SKIP_YML=$(find . -name skip.yml | head -1)
           if [ -z "$SKIP_YML" ]; then
             echo "No skip.yml in the generated project; layout assumption is wrong." >&2
@@ -1871,8 +1909,8 @@ jobs:
             find . -type f \( -name '*.aar' -o -name '*.aab' -o -name '*.so' \) >&2
             exit 1
           fi
-          echo "Inspecting $APK"
-          unzip -l "$APK" | grep -F 'libfrida-core.so'
+          echo "Inspecting $APK for $SO_NAME"
+          unzip -l "$APK" | grep -F "$SO_NAME"
 
   release:
     needs: [macos, ios, fedora, ubuntu, appimage, flatpak, snap, windows]

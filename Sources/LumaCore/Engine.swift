@@ -2058,7 +2058,7 @@ public final class Engine {
 
             s = (try? store.fetchSession(id: s.id)) ?? s
             if config.autoResume {
-                try await device.resume(pid)
+                try await device.resume(pid: pid)
                 s.phase = .attached
             } else {
                 s.phase = .awaitingInitialResume
@@ -2103,12 +2103,12 @@ public final class Engine {
         do {
             ensureDeviceEventsHooked(for: device)
 
-            let fridaSession = try await device.attach(to: process.pid)
+            let fridaSession = try await device.attach(pid: process.pid)
 
             updateSession(id: s.id) { $0.lastAttachedAt = Date() }
 
             let script = try await fridaSession.createScript(
-                LumaAgent.coreSource,
+                source: LumaAgent.coreSource,
                 name: "luma",
                 runtime: .auto
             )
@@ -4254,11 +4254,6 @@ public final class Engine {
             """
         try entrySource.write(to: entryURL, atomically: true, encoding: .utf8)
 
-        let options = BuildOptions()
-        options.projectRoot = paths.root.path
-        options.sourceMaps = .omitted
-        options.compression = .terser
-
         let hookID = id.uuidString
         let userPath = "TracerHooks/\(hookID).ts"
         let entryPath = "TracerHooks/\(hookID).entry.ts"
@@ -4271,7 +4266,12 @@ public final class Engine {
                 return path
             }
         ) { compiler in
-            try await compiler.build(entrypoint: entryRelPath, options: options)
+            try await compiler.build(
+                entrypoint: entryRelPath,
+                projectRoot: paths.root.path,
+                sourceMaps: .omitted,
+                compression: .terser
+            )
         }
 
         let modules = try ESMBundleParser.parse(bundle)
@@ -4514,11 +4514,6 @@ public final class Engine {
 
         let entryRelPath = "\(dirRelPath)/\(try CustomInstrumentFile.validateRelativePath(entrypoint))"
 
-        let options = BuildOptions()
-        options.projectRoot = paths.root.path
-        options.sourceMaps = .omitted
-        options.compression = .terser
-
         let sourcePrefix = "\(dirRelPath)/"
         let bundle = try await compilerWorkspace.withCompilerDiagnostics(
             label: diagnosticLabel,
@@ -4527,7 +4522,12 @@ public final class Engine {
                 return String(path[range.upperBound...])
             }
         ) { compiler in
-            try await compiler.build(entrypoint: entryRelPath, options: options)
+            try await compiler.build(
+                entrypoint: entryRelPath,
+                projectRoot: paths.root.path,
+                sourceMaps: .omitted,
+                compression: .terser
+            )
         }
 
         let modules = try ESMBundleParser.parse(bundle)
@@ -5517,7 +5517,7 @@ public func deleteCustomInstrument(_ defID: UUID) async {
                 sessionID: session.id
             )
         } else {
-            try? await device.resume(pid)
+            try? await device.resume(pid: pid)
             emitSpawnGatingEvent(
                 device: device,
                 identifier: details.identifier,
@@ -5586,12 +5586,12 @@ public func deleteCustomInstrument(_ defID: UUID) async {
         do {
             let processes = try await device.enumerateProcesses(pids: [pid], scope: .full)
             guard let process = processes.first else {
-                try? await device.resume(pid)
+                try? await device.resume(pid: pid)
                 return
             }
             try await performAttach(device: device, process: process, session: session)
         } catch {
-            try? await device.resume(pid)
+            try? await device.resume(pid: pid)
             updateSession(id: session.id) {
                 $0.lastError = error.localizedDescription
                 $0.phase = .idle
@@ -5600,12 +5600,12 @@ public func deleteCustomInstrument(_ defID: UUID) async {
         }
 
         guard self.session(id: session.id)?.phase == .attached else {
-            try? await device.resume(pid)
+            try? await device.resume(pid: pid)
             return
         }
 
         if shouldAutoResumeOnCapture(session) {
-            try? await device.resume(pid)
+            try? await device.resume(pid: pid)
         } else {
             updateSession(id: session.id) { $0.phase = .awaitingInitialResume }
         }
