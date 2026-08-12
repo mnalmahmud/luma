@@ -19,9 +19,16 @@ for _flag in $(pkg-config --static --libs frida-core-1.0); do
     case $_flag in
         # A driver flag; ld would reject it, and Swift already links pthread.
         -pthread) ;;
+        # Also driver-level: -Xlinker reaches ld directly, where the -Wl,
+        # prefix is not a thing, so unwrap it into its comma-separated parts.
+        -Wl,*)
+            for _part in $(printf '%s' "${_flag#-Wl,}" | tr ',' ' '); do
+                FRIDA_LINK_ARGS="$FRIDA_LINK_ARGS -Xlinker $_part"
+            done
+            ;;
         *) FRIDA_LINK_ARGS="$FRIDA_LINK_ARGS -Xlinker $_flag" ;;
     esac
 done
-unset _flag
+unset _flag _part
 
 test -n "$FRIDA_LINK_ARGS"
