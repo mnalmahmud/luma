@@ -1709,7 +1709,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: /tmp/host-prefix
-          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v5
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v6
 
       # LumaBundleCompiler links FridaCore and runs on the build machine,
       # so the host needs its own frida-core independent of the Android one.
@@ -1727,11 +1727,6 @@ jobs:
           cd $RUNNER_TEMP/frida-core-host
           git checkout $FRIDA_CORE_REF
           git submodule update --init --recursive --depth 1
-          # The tool only ever constructs a PackageManager, so it needs the
-          # registry client and the compiler, not a way to reach devices.
-          # Fruity is the one that matters: its TLS-PSK code calls OpenSSL,
-          # which lives in the SDK rather than the merged archive, and
-          # SwiftPM's pkg-config never asks for Libs.private.
           ./configure \
               --prefix=$HOST_PREFIX \
               --enable-compiler-backend \
@@ -1739,8 +1734,7 @@ jobs:
               --disable-portal \
               --disable-inject \
               --disable-gadget \
-              --disable-tests \
-              -- -Dfruity_backend=disabled
+              --disable-tests
           make -j$(nproc)
           make install
 
@@ -1771,7 +1765,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: /tmp/host-prefix
-          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v5
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v6
 
       - name: Install Swift
         run: |
@@ -1855,7 +1849,8 @@ jobs:
           find $HOST_PREFIX -name 'libfrida-core*' -printf '%s\t%p\n' | sort
           pkg-config --libs frida-core-1.0
 
-          swift build --product luma-bundle-compiler
+          . $GITHUB_WORKSPACE/.github/scripts/frida-static-link-args.sh
+          swift build --product luma-bundle-compiler $FRIDA_LINK_ARGS
           TOOL=$(swift build --product luma-bundle-compiler --show-bin-path)/luma-bundle-compiler
           if ldd $TOOL | grep frida; then
             echo "luma-bundle-compiler loads frida-core dynamically; its GLib is a second copy." >&2
@@ -1875,7 +1870,8 @@ jobs:
           test -n "$HOST_PC"
           test -f $HOST_PREFIX/sdk/lib/pkgconfig/glib-2.0.pc
           export PKG_CONFIG_PATH=$HOST_PC:$HOST_PREFIX/sdk/lib/pkgconfig
-          swift run luma-bundle-compiler \
+          . $GITHUB_WORKSPACE/.github/scripts/frida-static-link-args.sh
+          swift run $FRIDA_LINK_ARGS luma-bundle-compiler \
               --config       "$PWD/Agent/bundle.json" \
               --project-root "$PWD" \
               --staging-dir  "$PWD/.build/AgentStaging"
