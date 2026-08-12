@@ -36,6 +36,19 @@ public struct LumaAppPaths: Sendable {
             untitledDirectory: untitled,
             dataDirectory: root
         )
+        #elseif os(Android)
+        guard let filesDir = ProcessInfo.processInfo.environment["LUMA_DATA_DIR"], !filesDir.isEmpty else {
+            fatalError("LUMA_DATA_DIR must be set from Context.getFilesDir() before LumaAppPaths is used")
+        }
+        let root = URL(fileURLWithPath: filesDir, isDirectory: true)
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        let untitled = root.appendingPathComponent("Untitled", isDirectory: true)
+        try? fm.createDirectory(at: untitled, withIntermediateDirectories: true)
+        return LumaAppPaths(
+            stateURL: root.appendingPathComponent("state.json"),
+            untitledDirectory: untitled,
+            dataDirectory: root
+        )
         #else
         let env = ProcessInfo.processInfo.environment
         let xdgConfigHome = env["XDG_CONFIG_HOME"]

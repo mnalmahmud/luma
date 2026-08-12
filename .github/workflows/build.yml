@@ -7,10 +7,12 @@ on:
   pull_request:
 
 env:
-  FRIDA_CORE_REF: "f31061e8462c787dea5af5e19b05db41bc75e92c"
+  FRIDA_CORE_REF: "17.17.0"
   RADARE2_REF: "7ed1e8c6fd000b99c8aa6835e12bef1657d92746"
   SPARKLE_VERSION: "2.9.1"
-  SWIFT_VERSION: "6.2"
+  SWIFT_VERSION: "6.3.3"
+  ANDROID_NDK_VERSION: "r29"
+  SWIFT_ANDROID_SDK_CHECKSUM: "d160cc3206dd1886dae3fef2337af5e25ec034692cd0ec225721c56cc69da7f5"
   # ilammy/msvc-dev-cmd hasn't cut a Node-24-compatible release yet
   # (v1 is its only major). Opt into Node 24 ahead of GitHub's
   # forced migration in June 2026 so the warning doesn't clutter
@@ -18,7 +20,11 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  # The Android spike touches nothing these jobs build, and frida-core
+  # alone costs more than the whole Android pipeline. Skip them while
+  # the branch iterates; revert this commit before merging.
   version:
+    if: github.head_ref != 'android-support' && github.ref_name != 'android-support'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.compute.outputs.version }}
@@ -64,6 +70,7 @@ jobs:
           echo "build=${{ github.run_number }}" >> $GITHUB_OUTPUT
 
   frida-core:
+    if: github.head_ref != 'android-support' && github.ref_name != 'android-support'
     runs-on: macos-26
     strategy:
       fail-fast: false
@@ -166,6 +173,7 @@ jobs:
           if-no-files-found: error
 
   xcframework:
+    if: github.head_ref != 'android-support' && github.ref_name != 'android-support'
     runs-on: macos-26
     needs: frida-core
     steps:
@@ -235,6 +243,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    if: github.head_ref != 'android-support' && github.ref_name != 'android-support'
     # Apple Silicon Xcode cross-compiles to x86_64 natively, so both
     # matrix entries run on the free arm64 runner — no paid -large
     # runner needed for the Intel slice.
@@ -516,6 +525,7 @@ jobs:
           path: Luma-${{ env.LUMA_VERSION }}-${{ matrix.arch }}.dmg.sig
 
   ios:
+    if: github.head_ref != 'android-support' && github.ref_name != 'android-support'
     runs-on: macos-26
     needs: [version, xcframework]
     env:
@@ -747,6 +757,7 @@ jobs:
             --apiIssuer "$ASC_ISSUER_ID"
 
   fedora:
+    if: github.head_ref != 'android-support' && github.ref_name != 'android-support'
     runs-on: ubuntu-latest
     container: fedora:43
     needs: version
@@ -896,6 +907,7 @@ jobs:
           path: luma-${{ env.LUMA_VERSION }}-fedora-43-x86_64.rpm
 
   ubuntu:
+    if: github.head_ref != 'android-support' && github.ref_name != 'android-support'
     runs-on: ubuntu-latest
     container: ubuntu:${{ matrix.release }}
     needs: version
@@ -1064,6 +1076,7 @@ jobs:
           path: luma-${{ env.LUMA_VERSION }}-ubuntu-${{ matrix.release }}-x86_64.deb
 
   appimage:
+    if: github.head_ref != 'android-support' && github.ref_name != 'android-support'
     runs-on: ubuntu-latest
     container: ghcr.io/pkgforge-dev/archlinux:latest
     needs: [version, ubuntu]
@@ -1089,6 +1102,7 @@ jobs:
           path: Luma-${{ env.LUMA_VERSION }}-anylinux-x86_64.AppImage*
 
   flatpak:
+    if: github.head_ref != 'android-support' && github.ref_name != 'android-support'
     runs-on: ubuntu-latest
     needs: version
     env:
@@ -1165,6 +1179,7 @@ jobs:
           path: luma-${{ env.LUMA_VERSION }}-x86_64.flatpak
 
   snap:
+    if: github.head_ref != 'android-support' && github.ref_name != 'android-support'
     runs-on: ubuntu-latest
     needs: version
     env:
@@ -1226,6 +1241,7 @@ jobs:
           path: luma-${{ env.LUMA_VERSION }}-x86_64.snap
 
   windows:
+    if: github.head_ref != 'android-support' && github.ref_name != 'android-support'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 240
     needs: version
@@ -1513,6 +1529,437 @@ jobs:
           name: Luma-${{ env.LUMA_VERSION }}-${{ matrix.win_arch }}.msi
           path: LumaGtk/build/Luma-${{ env.LUMA_VERSION }}-${{ matrix.win_arch }}.msi
           if-no-files-found: error
+
+  android-deps:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { abi: arm64-v8a, frida_host: android-arm64,  r2_arch: aarch64 }
+          - { abi: x86_64,    frida_host: android-x86_64, r2_arch: x86_64 }
+    env:
+      PREFIX: /tmp/android-prefix
+    steps:
+      - name: Restore Android deps cache
+        id: cache
+        uses: actions/cache/restore@v5
+        with:
+          path: /tmp/android-prefix
+          key: ${{ runner.os }}-android-deps-${{ matrix.frida_host }}-frida-${{ env.FRIDA_CORE_REF }}-r2-${{ env.RADARE2_REF }}-v2
+
+      - name: Install system dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build pkg-config
+
+      # The runner image's bundled NDK trails what frida-core supports,
+      # so pin one rather than taking ANDROID_NDK_LATEST_HOME.
+      - name: Install Android NDK
+        if: steps.cache.outputs.cache-hit != 'true'
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+          # Both matrix legs race to reserve one setup-ndk-<ver>-<os> key, and
+          # the loser's partial archive is what later runs restore -- clang goes
+          # missing. The $PREFIX cache below already covers the expensive part.
+          local-cache: false
+
+      - name: Clone frida-core
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/frida/frida-core.git $RUNNER_TEMP/frida-core
+          cd $RUNNER_TEMP/frida-core
+          git checkout $FRIDA_CORE_REF
+          git submodule update --init --recursive --depth 1
+
+      - name: Install Go toolchain
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: ${{ runner.temp }}/frida-core/src/compiler/go.mod
+          cache: false
+
+      - name: Build frida-core
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          GOTOOLCHAIN: auto
+        run: |
+          export ANDROID_NDK_ROOT="${{ steps.ndk.outputs.ndk-path }}"
+          cd $RUNNER_TEMP/frida-core
+          ./configure \
+              --host=${{ matrix.frida_host }} \
+              --prefix=$PREFIX \
+              --enable-compiler-backend \
+              --disable-server \
+              --disable-portal \
+              --disable-inject \
+              --disable-gadget \
+              --disable-tests
+          make -j$(nproc)
+          make install
+
+      # CSoup and the rest of LumaCore's glib-side dependencies resolve
+      # through pkg-config, and on Android the only builds of those that
+      # match frida-core are the ones frida just built against. Relocate
+      # that tree into the cached prefix so it survives the build dir.
+      - name: Stage frida's bundled SDK
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          SDK_DIR=$(find $RUNNER_TEMP/frida-core/deps -maxdepth 1 -type d -name 'sdk-*' | head -1)
+          if [ -z "$SDK_DIR" ]; then
+            echo "No prebuilt SDK found under frida-core/deps; libsoup and friends will be missing." >&2
+            exit 1
+          fi
+          mkdir -p $PREFIX/sdk
+          cp -a "$SDK_DIR"/. $PREFIX/sdk/
+          for pc in $PREFIX/sdk/lib/pkgconfig/*.pc; do
+            sed -i -e "s|\${frida_sdk_prefix}|$PREFIX/sdk|g" \
+                   -e "s|^prefix=.*|prefix=$PREFIX/sdk|" "$pc"
+          done
+
+      # radare2's own Android cross-files, retargeted: they still point at
+      # the ndk-bundle layout and the binutils wrappers that NDK r23
+      # dropped. sys/android-build.sh is not an option here -- it purges
+      # the headers, .pc files and libraries that SwiftyR2 links against.
+      # No system libzip either, so radare2 uses its vendored copy.
+      - name: Build radare2
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          NDK="${{ steps.ndk.outputs.ndk-path }}"
+          SYSROOT=$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+          git clone https://github.com/radareorg/radare2.git $RUNNER_TEMP/radare2
+          cd $RUNNER_TEMP/radare2
+          git checkout $RADARE2_REF
+          CROSS=.github/meson-android-${{ matrix.r2_arch }}.ini
+          sed -i \
+              -e "s|/usr/local/lib/android/sdk/ndk-bundle|$NDK|g" \
+              -e "s|^sys_root.*|sys_root = '$SYSROOT'|" \
+              -e "/^as  *=/d" -e "/^ld  *=/d" \
+              -e "s|bin/[a-z0-9_]*-linux-android-ar|bin/llvm-ar|" \
+              -e "s|bin/[a-z0-9_]*-linux-android-ranlib|bin/llvm-ranlib|" \
+              -e "s|bin/[a-z0-9_]*-linux-android-strip|bin/llvm-strip|" \
+              "$CROSS"
+          cat "$CROSS"
+          grep -q "^c *= *'$NDK/" "$CROSS"
+          grep -q "^sys_root = '$SYSROOT'" "$CROSS"
+          # radare2 runs sdb at build time to generate its .sdb databases, but
+          # takes it from the subproject, so a cross build hands meson an
+          # Android binary and it asks for an exe_wrapper. sdb ships a
+          # sdb_native_exe for this and forgets native:, so build the same
+          # pinned source for the runner. Only the command positions move --
+          # sdb_exe is still the artifact r2sdb installs and depends on.
+          meson subprojects download sdb
+          meson setup build-sdb subprojects/sdb
+          ninja -C build-sdb sdb
+          sed -i \
+              -e "s|^sdb_exe = libsdb_sp.get_variable('sdb_exe')|&\nsdb_native = find_program('$PWD/build-sdb/sdb')|" \
+              -e "/_gen_cmd/ s|sdb_exe|sdb_native|g" \
+              meson.build
+          sed -i "s|command: \[sdb_exe,|command: [sdb_native,|" \
+              libr/anal/d/meson.build libr/asm/d/meson.build libr/bin/d/meson.build \
+              libr/bin/d/dll/meson.build libr/fs/d/meson.build libr/syscall/d/meson.build
+          grep -q "^sdb_native = find_program" meson.build
+          ! grep -rq "command: \[sdb_exe," --include=meson.build .
+          meson setup build \
+              --cross-file "$CROSS" \
+              --prefix=$PREFIX \
+              --default-library=static \
+              -Dstatic_runtime=true \
+              -Dcli=disabled
+          ninja -C build install
+
+      - name: Save Android deps cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: /tmp/android-prefix
+          key: ${{ runner.os }}-android-deps-${{ matrix.frida_host }}-frida-${{ env.FRIDA_CORE_REF }}-r2-${{ env.RADARE2_REF }}-v2
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-prefix-${{ matrix.abi }}
+          path: /tmp/android-prefix
+          if-no-files-found: error
+
+  lumacore-android:
+    runs-on: ubuntu-latest
+    needs: android-deps
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { abi: arm64-v8a, swift_sdk: aarch64-unknown-linux-android28 }
+          - { abi: x86_64,    swift_sdk: x86_64-unknown-linux-android28 }
+    env:
+      PREFIX: /tmp/android-prefix
+      HOST_PREFIX: /tmp/host-prefix
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-prefix-${{ matrix.abi }}
+          path: /tmp/android-prefix
+
+      - name: Restore host frida-core cache
+        id: host-frida-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: /tmp/host-prefix
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v6
+
+      # LumaBundleCompiler links FridaCore and runs on the build machine,
+      # so the host needs its own frida-core independent of the Android one.
+      #
+      # Static, not shared: a shared frida-core keeps its GLib hidden and
+      # publishes Requires: glib-2.0, so the consumer links a second copy
+      # from the bundled SDK. Neither can interpose on the other, and the
+      # tool then hands GLib objects built by one to the other -- which is
+      # what segfaulted g_ptr_set_add. The static build merges GLib into
+      # libfrida-core-1.0.a, leaving exactly one.
+      - name: Build host frida-core
+        if: steps.host-frida-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/frida/frida-core.git $RUNNER_TEMP/frida-core-host
+          cd $RUNNER_TEMP/frida-core-host
+          git checkout $FRIDA_CORE_REF
+          git submodule update --init --recursive --depth 1
+          ./configure \
+              --prefix=$HOST_PREFIX \
+              --enable-compiler-backend \
+              --disable-server \
+              --disable-portal \
+              --disable-inject \
+              --disable-gadget \
+              --disable-tests
+          make -j$(nproc)
+          make install
+
+      # frida-core-1.0.pc requires glib-2.0, and the runner has no
+      # libglib2.0-dev. Same answer as the Android prefix: frida already
+      # built one, so keep its SDK next to the library it belongs to.
+      - name: Stage host frida's bundled SDK
+        if: steps.host-frida-cache.outputs.cache-hit != 'true'
+        run: |
+          SDK_DIR=$(find $RUNNER_TEMP/frida-core-host/deps -maxdepth 1 -type d -name 'sdk-*' | head -1)
+          if [ -z "$SDK_DIR" ]; then
+            echo "No prebuilt SDK found under frida-core-host/deps; glib will be missing." >&2
+            exit 1
+          fi
+          mkdir -p $HOST_PREFIX/sdk
+          cp -a "$SDK_DIR"/. $HOST_PREFIX/sdk/
+          # frida packages the SDK relocatable by rewriting its build
+          # prefix to ${frida_sdk_prefix} and having consumers pass
+          # --define-variable, which SwiftPM's pkg-config cannot. Finish
+          # the relocation here instead.
+          for pc in $HOST_PREFIX/sdk/lib/pkgconfig/*.pc; do
+            sed -i -e "s|\${frida_sdk_prefix}|$HOST_PREFIX/sdk|g" \
+                   -e "s|^prefix=.*|prefix=$HOST_PREFIX/sdk|" "$pc"
+          done
+
+      - name: Save host frida-core cache
+        if: steps.host-frida-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: /tmp/host-prefix
+          key: ${{ runner.os }}-host-frida-core-${{ env.FRIDA_CORE_REF }}-v6
+
+      - name: Install Swift
+        run: |
+          curl -sLO "https://download.swift.org/swift-${SWIFT_VERSION}-release/ubuntu2404/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE-ubuntu24.04.tar.gz"
+          sudo tar xzf swift-*.tar.gz -C /usr/local --strip-components=2
+          rm swift-*.tar.gz
+          sudo ldconfig
+          swift --version
+
+      - name: Install Swift Android SDK
+        run: |
+          swift sdk install \
+              "https://download.swift.org/swift-${SWIFT_VERSION}-release/android-sdk/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE_android.artifactbundle.tar.gz" \
+              --checksum "$SWIFT_ANDROID_SDK_CHECKSUM"
+          swift sdk list
+
+      # frida-swift checks in Frida/Generated.swift and its tags lag the
+      # frida-core they claim: even tag 17.17.0 ships bindings emitted for
+      # 17.15.4 and still pins that xcframework, so calls like
+      # frida_device_enable_spawn_gating are short the options parameter
+      # 17.16.0 added. Apple builds never notice because they take the
+      # pinned xcframework; pkg-config builds get the real headers. Rather
+      # than patch the generated file, re-run the generator frida-swift
+      # already uses, against the GIRs this frida-core just installed.
+      - name: Regenerate frida-swift bindings
+        run: |
+          swift package resolve
+          FS=.build/checkouts/frida-swift
+          test -f $FS/Frida/Generated.swift
+          # SwiftPM checks dependencies out read-only.
+          chmod u+w $FS/Frida/Generated.swift
+          git clone -q --depth 1 https://github.com/frida/frida-bindgen.git $RUNNER_TEMP/frida-bindgen
+          gir() {
+            local found
+            found=$(find $HOST_PREFIX -name "$1" -print -quit)
+            if [ -z "$found" ]; then
+              echo "Missing $1 under $HOST_PREFIX; cannot regenerate bindings." >&2
+              exit 1
+            fi
+            echo "$found"
+          }
+          PYTHONPATH=$FS:$RUNNER_TEMP/frida-bindgen python3 -m frida_swift \
+              --frida-gir="$(gir Frida-1.0.gir)" \
+              --glib-gir="$(gir GLib-2.0.gir)" \
+              --gobject-gir="$(gir GObject-2.0.gir)" \
+              --gio-gir="$(gir Gio-2.0.gir)" \
+              --output-swift=$FS/Frida/Generated.swift
+          # The regenerated file must actually track the headers we built.
+          grep -q "frida_device_enable_spawn_gating" $FS/Frida/Generated.swift
+          git -C $FS --no-pager diff --stat
+
+      # On LP64 Linux glib typedefs gint64 as long, so Swift imports it as
+      # Int; Apple's glib uses long long and imports as Int64. Two Marshal
+      # cases hand Int64/UInt64 straight to g_variant_new_*, which only
+      # type-checks against Apple's headers. The neighbouring Int/UInt
+      # cases already convert, so make these match.
+      - name: Patch frida-swift for LP64 glib types
+        run: |
+          M=.build/checkouts/frida-swift/Frida/Marshal.swift
+          chmod u+w $M
+          sed -i \
+              -e 's|g_variant_new_int64(number)|g_variant_new_int64(gint64(number))|' \
+              -e 's|g_variant_new_uint64(number)|g_variant_new_uint64(guint64(number))|' \
+              $M
+          # Both the pre-existing and the newly wrapped call must be there.
+          test "$(grep -c 'g_variant_new_int64(gint64(number))' $M)" = 2
+          test "$(grep -c 'g_variant_new_uint64(guint64(number))' $M)" = 2
+
+      # A shared frida-core hides its GLib and asks the consumer to bring
+      # its own, so the tool ends up with a second copy that cannot
+      # interpose -- GLib objects then cross between the two and crash.
+      # Nothing in the build fails when that happens, so assert the shape
+      # of the link rather than wait for the next segfault.
+      - name: Check the tool links one frida-core statically
+        env:
+          USE_SYSTEM_FRIDA: "1"
+        run: |
+          HOST_PC=$(find $HOST_PREFIX/lib -name frida-core-1.0.pc -printf '%h\n' | head -1)
+          export PKG_CONFIG_PATH=$HOST_PC:$HOST_PREFIX/sdk/lib/pkgconfig
+
+          find $HOST_PREFIX -name 'libfrida-core*' -printf '%s\t%p\n' | sort
+          pkg-config --libs frida-core-1.0
+
+          . $GITHUB_WORKSPACE/.github/scripts/frida-static-link-args.sh
+          swift build --product luma-bundle-compiler $FRIDA_LINK_ARGS
+          TOOL=$(swift build --product luma-bundle-compiler --show-bin-path)/luma-bundle-compiler
+          if ldd $TOOL | grep frida; then
+            echo "luma-bundle-compiler loads frida-core dynamically; its GLib is a second copy." >&2
+            exit 1
+          fi
+          # Present at all means the merged archive supplied it.
+          nm $TOOL | grep -q ' g_ptr_set_add'
+
+      - name: Generate agent bundle
+        env:
+          USE_SYSTEM_FRIDA: "1"
+        run: |
+          # Meson gives the native build Debian's multiarch libdir, so the
+          # host .pc files land beside lib/x86_64-linux-gnu while the cross
+          # build keeps a plain lib. Ask where they actually are.
+          HOST_PC=$(find $HOST_PREFIX/lib -name frida-core-1.0.pc -printf '%h\n' | head -1)
+          test -n "$HOST_PC"
+          test -f $HOST_PREFIX/sdk/lib/pkgconfig/glib-2.0.pc
+          export PKG_CONFIG_PATH=$HOST_PC:$HOST_PREFIX/sdk/lib/pkgconfig
+          . $GITHUB_WORKSPACE/.github/scripts/frida-static-link-args.sh
+          swift run $FRIDA_LINK_ARGS luma-bundle-compiler \
+              --config       "$PWD/Agent/bundle.json" \
+              --project-root "$PWD" \
+              --staging-dir  "$PWD/.build/AgentStaging"
+          test -f Sources/LumaCore/Generated/LumaAgent.swift
+
+      - name: Build LumaCore for Android
+        env:
+          USE_SYSTEM_FRIDA: "1"
+          LUMA_AGENT_PREGENERATED: "1"
+        run: |
+          swift build --target LumaCore \
+              --swift-sdk ${{ matrix.swift_sdk }} \
+              --pkg-config-path $PREFIX/lib/pkgconfig \
+              --pkg-config-path $PREFIX/sdk/lib/pkgconfig
+
+  # Nothing here feeds the app yet. Skip's documentation covers neither
+  # headless CI nor bundling prebuilt .so files, so this answers both
+  # empirically before Phase 3 commits to Skip. Each step isolates one
+  # assumption so a red run says which one was wrong.
+  skip-probe:
+    runs-on: macos-26
+    needs: android-deps
+    timeout-minutes: 45
+    env:
+      SKIP_MODE: fuse
+      PREFIX: /tmp/android-prefix
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-prefix-arm64-v8a
+          path: /tmp/android-prefix
+
+      - uses: skiptools/actions/setup-skip@v1
+        with:
+          install-swift-android-sdk: 'true'
+          swift-android-ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+          swift-version: ${{ env.SWIFT_VERSION }}
+          verbose: 'true'
+
+      - name: Verify Skip toolchain
+        run: skip checkup --verbose
+
+      - name: Generate probe app
+        run: |
+          cd $RUNNER_TEMP
+          skip init --native-app --appid=re.frida.luma.probe skip-probe LumaProbe
+
+      - name: Build probe app
+        run: |
+          cd $RUNNER_TEMP/skip-probe
+          skip android build
+
+      # Every phone view in Luma/ sits behind #if canImport(UIKit), so on
+      # a platform without it they compile to nothing and a green build
+      # says nothing. Other files import Charts and SwiftyMonaco with no
+      # guard at all. Ask the compiler which of these exist before
+      # planning around any of them.
+      - name: Report module availability
+        run: |
+          cd $RUNNER_TEMP/skip-probe
+          # skip builds for Apple platforms too, so gate on os(Android) or
+          # the answers arrive mixed together and iOS wins the sort.
+          for m in UIKit AppKit SwiftUI Charts SwiftyMonaco Combine Observation; do
+            printf '#if os(Android)\n#if canImport(%s)\n#warning("LUMA-PROBE %s yes")\n#else\n#warning("LUMA-PROBE %s no")\n#endif\n#endif\n' "$m" "$m" "$m"
+          done > Sources/LumaProbe/ModuleProbe.swift
+          skip android build 2>&1 | tee module-probe.log
+          # The compiler quotes the untaken #else branch back, so match the
+          # diagnostic rather than any line mentioning the marker.
+          grep -oE 'warning: LUMA-PROBE [A-Za-z]+ (yes|no)' module-probe.log \
+              | sed 's|warning: ||' | sort -u | tee -a $GITHUB_STEP_SUMMARY
+
+      - name: Verify native libraries were packaged
+        run: |
+          cd $RUNNER_TEMP/skip-probe
+          # skip android build only cross-compiles the Swift libraries;
+          # assembling them into an APK is what skip export does.
+          skip export -d skip-export --debug --verbose
+          APK=$(find skip-export -name '*.apk' | head -1)
+          if [ -z "$APK" ]; then
+            echo "skip export produced no APK; artifacts were:" >&2
+            find . -type f \( -name '*.aar' -o -name '*.aab' -o -name '*.so' \) >&2
+            exit 1
+          fi
+          # frida-core and radare2 are static now, so they arrive inside
+          # the Swift module libraries rather than as files of their own.
+          # What has to hold is that Skip packages arm64-v8a libs at all.
+          echo "Inspecting $APK"
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/.*\.so'
 
   release:
     needs: [macos, ios, fedora, ubuntu, appimage, flatpak, snap, windows]

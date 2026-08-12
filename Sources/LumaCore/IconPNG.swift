@@ -13,13 +13,20 @@ public extension Icon {
         case .png(let bytes):
             return Data(bytes)
         case .rgba:
-            #if canImport(CoreGraphics)
-            return encodeCGImageAsPNG(cgImage)
-            #else
-            return nil
-            #endif
+            return rgbaPNGData
         }
     }
+
+    #if canImport(CoreGraphics)
+    private var rgbaPNGData: Data? {
+        encodeCGImageAsPNG(cgImage)
+    }
+    #else
+    private var rgbaPNGData: Data? {
+        guard case let .rgba(width, height, pixels) = self else { return nil }
+        return PNGEncoder.encodeRGBA(width: width, height: height, pixels: pixels)
+    }
+    #endif
 }
 
 public extension ProcessSession {
